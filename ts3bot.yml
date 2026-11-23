@@ -1,14 +1,14 @@
 name: badges
-description: Hlídá TeamSpeak badges - každou novou ohlásí soukromě těm, kdo ji odebírají (!badges odebirat), jinak do kanálu, i s kódem, jakmile je známý.
-version: 2.1.0
+description: Hlídá TeamSpeak badges - každou novou ohlásí soukromě těm, kdo ji odebírají (!badges subscribe), jinak do kanálu, i s kódem, jakmile je známý.
+version: 2.1.1
 when:
   cron: "*/15 * * * *"
   join: true                      # kdo odebírá a připojí se, dostane hned, co na něj čeká
-  command: badges                 # !badges odebirat | zrusit | (nic = stav) - pro všechny: !service public badges on
+  command: badges                 # !badges subscribe | unsubscribe | (nic = stav) - pro všechny: !service public badges on
 may:
   fetch: [badges-content.teamspeak.com, community.teamspeak.com]
   tools: [say_channel, list_online, message_user]
 settings:
   notify:
     type: people
-    description: komu psát vždycky, i bez přihlášení ("me" = ty, jméno admina, nebo UID) - kdo napíše !badges zrusit, nedostane nic
+    description: komu psát vždycky, i bez přihlášení ("me" = ty, jméno admina, nebo UID) - kdo napíše !badges unsubscribe, nedostane nic

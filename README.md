@@ -17,8 +17,8 @@ Bot ukáže, co plugin dělá a co smí, a nainstaluje ho až po tvém „ano“
 ## Odběr
 
 ```
-!badges odebirat      nové badges mi piš soukromě
-!badges zrusit        už mi je nepiš
+!badges subscribe     nové badges mi piš soukromě
+!badges unsubscribe   už mi je nepiš
 !badges               jestli je odebírám
 ```
 
@@ -26,7 +26,7 @@ Admini můžou hned. Aby se mohl přihlásit kdokoli, admin příkaz zveřejní:
 potřebují oprávnění spouštět zveřejněné příkazy služeb (`!perms * skills` pro všechny).
 
 Admin může lidi přidat i sám: `!service install github.com/rowdy4e/ts3bot-badges notify=me,Tisi`, později
-`!service set badges notify …` (me = ty; jméno jen admina, jinak UID). Kdo napíše `!badges zrusit`, nedostane nic,
+`!service set badges notify …` (me = ty; jméno jen admina, jinak UID). Kdo napíše `!badges unsubscribe`, nedostane nic,
 ani když ho admin přidal.
 
 Jak plugin napsat: [ts3bot-plugin-template](https://github.com/rowdy4e/ts3bot-plugin-template).

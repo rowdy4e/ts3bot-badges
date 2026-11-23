@@ -20,7 +20,8 @@ The bot shows what the plugin does and what it may do, and installs it only afte
 !badges subscribe     send me new badges privately
 !badges unsubscribe   stop sending them to me
 !badges latest        the newest badge, with its code
-!badges               do I get them?
+!badges forget        send me the newest one again the way a new one comes (a test, only for you)
+!badges               help, and whether I get them
 ```
 
 Admins can use it right away. To let anyone subscribe, an admin publishes the command - `!service public badges on` -

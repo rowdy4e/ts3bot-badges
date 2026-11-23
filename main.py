@@ -25,20 +25,35 @@ NOTIFY = ts3bot.people("notify")          # UIDs - who they are; what they're ca
 SUBSCRIBE = {"odebirat", "odebírat", "odber", "odběr", "prihlasit", "přihlásit", "subscribe", "sub", "on", "ano", "start"}
 UNSUBSCRIBE = {"zrusit", "zrušit", "odhlasit", "odhlásit", "unsubscribe", "unsub", "off", "ne", "stop"}
 LATEST = {"latest", "last", "newest", "new", "posledni", "poslední", "nejnovejsi", "nejnovější"}
+FORGET = {"forget", "again", "test", "zapomen", "zapomeň"}
+HELP = {"", "help", "--help", "-h", "-?", "?", "napoveda", "nápověda"}
+BURST = 3                                 # more new badges than this at once: the newest in full, the rest by name
+
+
+def write(path, data):
+    """Whole or not at all: a run that's stopped mid-write (a crash, its time limit) leaves the old file, never half of one."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 def load_subs():
     """{"in": {uid: name}, "out": [uid]} - who subscribed themselves, and who said no (also to the admin's notify)."""
+    if not os.path.exists(SUBS):
+        return {"in": {}, "out": []}
     try:
         d = json.load(open(SUBS))
         return {"in": dict(d.get("in") or {}), "out": list(d.get("out") or [])}
-    except (OSError, ValueError):
-        return {"in": {}, "out": []}
+    except (OSError, ValueError) as e:
+        # Never "nobody subscribed" over a file that's there: the next subscribe would overwrite everyone.
+        raise SystemExit(f"{SUBS} can't be read ({e}) - left as it is; nobody is told anything until it's fixed")
 
 
 def save_subs(subs):
-    with open(SUBS, "w") as f:
-        json.dump(subs, f)
+    write(SUBS, subs)
 
 
 def recipients(subs):
@@ -126,9 +141,7 @@ def tell(text):
         ts3bot.tool("say_channel", text=text)
         return
     for uid in WHO:
-        box = state.setdefault("outbox", {}).setdefault(uid, [])
-        box.append(text)
-        del box[:-30]                                  # someone away for months gets the latest 30
+        queue(uid, text)
 
 
 def deliver():
@@ -177,8 +190,14 @@ def badge_text(g, b, cd, head="🎖 New TeamSpeak badge"):
 
 
 def save(state):
-    with open(STATE, "w") as f:
-        json.dump(state, f)
+    write(STATE, state)
+
+
+def queue(uid, text):
+    box = state.setdefault("outbox", {}).setdefault(uid, [])
+    if text not in box:
+        box.append(text)
+    del box[:-30]                                      # someone away for months gets the latest 30
 
 
 state = json.load(open(STATE)) if os.path.exists(STATE) else None
@@ -197,6 +216,18 @@ if ts3bot.trigger == "command":
         save_subs(subs)
         print(f"✅ {name}, you're subscribed to new TeamSpeak badges: I'll send you each one privately, with its code "
               "once it's known (if you're offline, you'll get it when you connect). Stop: [b]!badges unsubscribe[/b]")
+    elif word in FORGET:                           # a real run of an announcement, for whoever asked only
+        if uid not in WHO:
+            print("You don't get new badges yet - subscribe first: [b]!badges subscribe[/b]")
+        elif state is None:
+            print("I haven't looked at the badges yet - try again in a moment.")
+        else:
+            bl, cd = badges(), codes()
+            g = max(bl, key=lambda k: bl[k]["added"])
+            queue(uid, badge_text(g, bl[g], cd))
+            save(state)
+            print(f"🔁 OK - I forgot I told you about [b]{bl[g]['name']}[/b]: at the next check (within 15 minutes) it comes "
+                  "to you privately, just like a new badge. Reconnect and it comes right away.")
     elif word in LATEST:                           # the newest badge, as an announcement of it looks
         bl, cd = badges(), codes()
         g = max(bl, key=lambda k: bl[k]["added"])
@@ -215,9 +246,14 @@ if ts3bot.trigger == "command":
               else "I'm not sending you badges anyway. To get them: [b]!badges subscribe[/b]")
     else:
         on = uid in WHO
-        print(("🎖 You get new TeamSpeak badges privately. Stop: [b]!badges unsubscribe[/b]" if on
-               else "🎖 You don't get new TeamSpeak badges yet. To get them: [b]!badges subscribe[/b]")
-              + f" · {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them. The newest one: [b]!badges latest[/b]")
+        print(("" if word in HELP else f"I don't know '{word}'.\n")
+              + "🎖 [b]!badges[/b] - new TeamSpeak badges, privately, with their codes\n"
+              + "• [b]!badges subscribe[/b] - send me each new badge\n"
+              + "• [b]!badges unsubscribe[/b] - stop\n"
+              + "• [b]!badges latest[/b] - the newest badge, now\n"
+              + "• [b]!badges forget[/b] - send me the newest one again the way a new one comes (a test)\n"
+              + ("You get them privately." if on else "You don't get them yet.")
+              + f" {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them.")
     raise SystemExit(0)
 
 # Someone connected: nothing new to look for - only hand over what waits for them (and only if it's one of ours).
@@ -242,6 +278,18 @@ if state is None:   # first run: remember everything, post nothing, say what it 
 
 seen = set(state["badges"])
 new = sorted((g for g in bl if g not in seen), key=lambda g: bl[g]["added"])
+if len(new) > BURST:
+    # More at once than TeamSpeak ever adds (its list changed shape, or what was remembered got lost): the newest one
+    # in full and the rest by name - one message, never a flood.
+    rest = ", ".join(bl[g]["name"] for g in reversed(new[:-1]))
+    more = f"\n…and {len(new) - 1} more new ones: {rest}"
+    tell(badge_text(new[-1], bl[new[-1]], cd) + (more if len(more) <= 400 else more[:400].rsplit(",", 1)[0] + ", …"))
+    for g in new:
+        state["badges"].append(g)
+        if g in cd:
+            state["codes"][g] = cd[g][0]
+    save(state)
+    new = []
 for g in new:
     b = bl[g]
     tell(badge_text(g, b, cd))

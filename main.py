@@ -18,7 +18,7 @@ THREAD = "https://community.teamspeak.com/t/updated-teamspeak-badge-list/25184.r
 STATE = "/data/state.json"
 SUBS = "/data/subscribers.json"   # its own file: state.json not being there yet is what makes the first run the first
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"}
-REDEEM = "uplatníš v TeamSpeaku (Nastavení → Účet → Badges) nebo na [url=https://www.myteamspeak.com]myteamspeak.com[/url]"
+REDEEM = "redeem it in TeamSpeak (Settings → Account → Badges) or at [url=https://www.myteamspeak.com]myteamspeak.com[/url]"
 NO_CODE = {"auto assign", "one-time code", "tba", "unknown", "none", "n/a", "-", ""}
 GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 NOTIFY = ts3bot.people("notify")          # UIDs - who they are; what they're called today doesn't matter
@@ -158,12 +158,12 @@ def expired(until):
 
 def code_line(code, until):
     if public(code) and expired(until):
-        return f"Kód [b]{code}[/b] už vypršel (platil do {until})."
+        return f"Code [b]{code}[/b] has expired (it was valid until {until})."
     if public(code):
-        return f"Kód: [b]{code}[/b]" + (f" (platí do {until})" if until and until.lower() != "unlimited" else "") + f" · {REDEEM}"
+        return f"Code: [b]{code}[/b]" + (f" (valid until {until})" if until and until.lower() != "unlimited" else "") + f" · {REDEEM}"
     if code.strip().lower() == "auto assign":
-        return "Nemá kód - přidělí se automaticky."
-    return "Veřejný kód nemá."
+        return "No code - it's assigned automatically."
+    return "No public code."
 
 
 def save(state):
@@ -175,18 +175,18 @@ state = json.load(open(STATE)) if os.path.exists(STATE) else None
 subs = load_subs()
 WHO = recipients(subs)
 
-# !badges [subscribe | unsubscribe] (or the Czech odebirat | zrusit): anyone it's published for subscribes or unsubscribes themselves - by their UID.
+# !badges [subscribe | unsubscribe] (the Czech odebirat | zrusit work too): anyone it's published for subscribes or unsubscribes themselves - by their UID.
 if ts3bot.trigger == "command":
     word = (ts3bot.args.split() or [""])[0].lower()
     uid, name = ts3bot.user_uid, ts3bot.user_name or "?"
     if not uid:
-        raise SystemExit("nevím, kdo to píše")
+        raise SystemExit("can't tell who is asking")
     if word in SUBSCRIBE:
         subs["in"][uid] = name
         subs["out"] = [u for u in subs["out"] if u != uid]
         save_subs(subs)
-        print(f"✅ {name}, odebíráš nové TeamSpeak badges: každou ti napíšu soukromě, i s kódem, jakmile bude známý "
-              "(když nebudeš online, dostaneš ji, až přijdeš). Zrušit: [b]!badges unsubscribe[/b]")
+        print(f"✅ {name}, you're subscribed to new TeamSpeak badges: I'll send you each one privately, with its code "
+              "once it's known (if you're offline, you'll get it when you connect). Stop: [b]!badges unsubscribe[/b]")
     elif word in UNSUBSCRIBE:
         was = uid in WHO
         subs["in"].pop(uid, None)
@@ -196,13 +196,13 @@ if ts3bot.trigger == "command":
         if state is not None and uid in (state.get("outbox") or {}):
             state["outbox"].pop(uid)               # what was still waiting for them goes too
             save(state)
-        print("🔕 Hotovo, nové badges ti už psát nebudu. Znovu: [b]!badges subscribe[/b]" if was
-              else "Nové badges ti nepíšu ani teď. Odebírat: [b]!badges subscribe[/b]")
+        print("🔕 Done - no more badge messages for you. To get them again: [b]!badges subscribe[/b]" if was
+              else "I'm not sending you badges anyway. To get them: [b]!badges subscribe[/b]")
     else:
         on = uid in WHO
-        print(("🎖 Nové TeamSpeak badges ti píšu soukromě. Zrušit: [b]!badges unsubscribe[/b]" if on
-               else "🎖 Nové TeamSpeak badges ti zatím nepíšu. Odebírat: [b]!badges subscribe[/b]")
-              + f" · Odebírá {len(WHO)} {'člověk' if len(WHO) == 1 else 'lidi' if 2 <= len(WHO) <= 4 else 'lidí'}.")
+        print(("🎖 You get new TeamSpeak badges privately. Stop: [b]!badges unsubscribe[/b]" if on
+               else "🎖 You don't get new TeamSpeak badges yet. To get them: [b]!badges subscribe[/b]")
+              + f" · {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them.")
     raise SystemExit(0)
 
 # Someone connected: nothing new to look for - only hand over what waits for them (and only if it's one of ours).
@@ -218,21 +218,21 @@ cd = codes()
 if state is None:   # first run: remember everything, post nothing, say what it watches
     save({"badges": list(bl), "codes": {g: c for g, (c, _) in cd.items()}})
     newest = max(bl.values(), key=lambda b: b["added"])
-    when = datetime.fromtimestamp(newest["added"], timezone.utc).strftime("%d.%m.%Y")
-    print(f"Hlídám {len(bl)} TeamSpeak badges (a kódy z fóra: {len(cd)}). Nejnovější: {newest['name']} ({when}). "
-          + (f"Každou novou napíšu soukromě ({len(WHO)}× - kdo nebude online, dostane ji, až přijde)."
-             if WHO else "Každou novou napíšu do kanálu, dokud ji nebude nikdo odebírat.")
-          + " Odebírat ji soukromě: [b]!badges subscribe[/b], zrušit: [b]!badges unsubscribe[/b].")
+    when = datetime.fromtimestamp(newest["added"], timezone.utc).strftime("%d %b %Y")
+    print(f"Watching {len(bl)} TeamSpeak badges (and {len(cd)} codes from the forum). Newest: {newest['name']} ({when}). "
+          + (f"I'll send each new one privately ({len(WHO)}× - whoever's offline gets it when they connect)."
+             if WHO else "I'll post each new one in the channel until someone subscribes.")
+          + " Get them privately: [b]!badges subscribe[/b], stop: [b]!badges unsubscribe[/b].")
     raise SystemExit(0)
 
 seen = set(state["badges"])
 new = sorted((g for g in bl if g not in seen), key=lambda g: bl[g]["added"])
 for g in new:
     b = bl[g]
-    text = f"🎖 Nová TeamSpeak badge: [b]{b['name']}[/b]" + (f" – {b['description']}" if b["description"] else "")
-    text += "\n" + (code_line(*cd[g]) if g in cd else "Kód zatím není známý - napíšu ho, až se objeví.")
+    text = f"🎖 New TeamSpeak badge: [b]{b['name']}[/b]" + (f" – {b['description']}" if b["description"] else "")
+    text += "\n" + (code_line(*cd[g]) if g in cd else "No code known yet - I'll send it when it turns up.")
     if b["image"]:
-        text += f" · [url={b['image']}_details.svg]obrázek[/url]"
+        text += f" · [url={b['image']}_details.svg]image[/url]"
     tell(text)
     state["badges"].append(g)
     if g in cd:

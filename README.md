@@ -1,32 +1,32 @@
 # ts3bot-badges
 
-Plugin pro TeamSpeak bota. Hlídá TeamSpeak badges: každou novou napíše soukromě těm, kdo ji odebírají (podle UID, ne
-jména) - kdo není online, dostane ji, až se připojí. Kód k badge pošle, jakmile je známý (oficiální seznam + vlákno
-na fóru). Když nikdo neodebírá, píše do kanálu.
+A plugin for the TeamSpeak bot. It watches TeamSpeak badges and sends each new one privately to whoever subscribed
+(by UID, not by name) - whoever is offline gets it when they connect. It adds the redeem code as soon as it's known
+(the official badge list + the forum thread). When nobody has subscribed, it posts to the channel.
 
-## Instalace
+## Install
 
-Soukromá zpráva botovi:
+Send the bot a private message:
 
 ```
 !service install github.com/rowdy4e/ts3bot-badges
 ```
 
-Bot ukáže, co plugin dělá a co smí, a nainstaluje ho až po tvém „ano“.
+The bot shows what the plugin does and what it may do, and installs it only after you reply "yes".
 
-## Odběr
+## Subscribing
 
 ```
-!badges subscribe     nové badges mi piš soukromě
-!badges unsubscribe   už mi je nepiš
-!badges               jestli je odebírám
+!badges subscribe     send me new badges privately
+!badges unsubscribe   stop sending them to me
+!badges               do I get them?
 ```
 
-Admini můžou hned. Aby se mohl přihlásit kdokoli, admin příkaz zveřejní: `!service public badges on` - a lidé
-potřebují oprávnění spouštět zveřejněné příkazy služeb (`!perms * skills` pro všechny).
+Admins can use it right away. To let anyone subscribe, an admin publishes the command - `!service public badges on` -
+and people need the right to run published service commands (`!perms * skills` for everyone).
 
-Admin může lidi přidat i sám: `!service install github.com/rowdy4e/ts3bot-badges notify=me,Tisi`, později
-`!service set badges notify …` (me = ty; jméno jen admina, jinak UID). Kdo napíše `!badges unsubscribe`, nedostane nic,
-ani když ho admin přidal.
+An admin can also add people: `!service install github.com/rowdy4e/ts3bot-badges notify=me,Tisi`, later
+`!service set badges notify …` (me = you; a name only for an admin, otherwise a UID). Whoever types
+`!badges unsubscribe` gets nothing, even when an admin added them.
 
-Jak plugin napsat: [ts3bot-plugin-template](https://github.com/rowdy4e/ts3bot-plugin-template).
+How to write a plugin: [ts3bot-plugin-template](https://github.com/rowdy4e/ts3bot-plugin-template).

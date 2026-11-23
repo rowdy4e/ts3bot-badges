@@ -1,11 +1,15 @@
 # Two sources: TeamSpeak's own badge list - the file the client itself downloads, so a new badge shows up there
 # first - and the community forum thread that posts every badge with its redeem code ("Badge Code: X (Available
-# until: Y)"), usually the same day. The first run only remembers what's there and says so.
+# until: Y)"), usually the same day. The first check only remembers what's there and says so.
 #
 # Who hears about it: whoever subscribed themselves (!badges subscribe) plus the admin's 'notify' setting, minus
 # whoever unsubscribed (!badges unsubscribe - that works for the admin's picks too: nobody gets messages they don't want).
-# Each gets a private message - whoever is offline the moment it's found, when they next connect (the bot starts this
-# again for everyone who connects: 'when: join'), or at the latest on the next check. Nobody on the list: the channel.
+# Each gets a private message - whoever is offline the moment it's found, when they next connect ('join'), or at the
+# latest on the next check. Nobody on the list: the channel.
+#
+# It runs all the time ('when: always'): its checks, the !badges commands and people connecting come to it as events
+# (ts3bot.serve), so a command is answered at once - no container started for it. Its memory lives in /data, read
+# at each event: a restart (or a crash) loses nothing.
 
 import html, json, os, re
 import xml.etree.ElementTree as ET
@@ -49,7 +53,7 @@ def load_subs():
         return {"in": dict(d.get("in") or {}), "out": list(d.get("out") or [])}
     except (OSError, ValueError) as e:
         # Never "nobody subscribed" over a file that's there: the next subscribe would overwrite everyone.
-        raise SystemExit(f"{SUBS} can't be read ({e}) - left as it is; nobody is told anything until it's fixed")
+        raise RuntimeError(f"{SUBS} can't be read ({e}) - left as it is; nobody is told anything until it's fixed")
 
 
 def save_subs(subs):
@@ -110,7 +114,7 @@ def badges():
             out[b[1]] = {"name": b[2], "description": b.get(4, ""), "image": b.get(3, ""),
                          "added": added / 1000 if added > 10**11 else added}
     if not out:
-        raise SystemExit("TeamSpeak's badge list came back empty - its format may have changed")
+        raise RuntimeError("TeamSpeak's badge list came back empty - its format may have changed")
     return out
 
 
@@ -200,111 +204,126 @@ def queue(uid, text):
     del box[:-30]                                      # someone away for months gets the latest 30
 
 
-state = json.load(open(STATE)) if os.path.exists(STATE) else None
-subs = load_subs()
-WHO = recipients(subs)
+def newest(bl):
+    return max(bl, key=lambda k: bl[k]["added"])
 
-# !badges [subscribe | unsubscribe | latest] (the Czech odebirat | zrusit | posledni work too): anyone it's published for subscribes or unsubscribes themselves - by their UID.
-if ts3bot.trigger == "command":
-    word = (ts3bot.args.split() or [""])[0].lower()
-    uid, name = ts3bot.user_uid, ts3bot.user_name or "?"
+
+def command(e, subs):
+    """!badges [subscribe | unsubscribe | latest | forget | help] (the Czech odebirat | zrusit | posledni work too)."""
+    word = (e.args.split() or [""])[0].lower()
+    uid, name = e.user_uid, e.user_name or "?"
     if not uid:
-        raise SystemExit("can't tell who is asking")
+        return "I can't tell who's asking."
     if word in SUBSCRIBE:
         subs["in"][uid] = name
         subs["out"] = [u for u in subs["out"] if u != uid]
         save_subs(subs)
-        print(f"✅ {name}, you're subscribed to new TeamSpeak badges: I'll send you each one privately, with its code "
-              "once it's known (if you're offline, you'll get it when you connect). Stop: [b]!badges unsubscribe[/b]")
-    elif word in FORGET:                           # a real run of an announcement, for whoever asked only
-        if uid not in WHO:
-            print("You don't get new badges yet - subscribe first: [b]!badges subscribe[/b]")
-        elif state is None:
-            print("I haven't looked at the badges yet - try again in a moment.")
-        else:
-            bl, cd = badges(), codes()
-            g = max(bl, key=lambda k: bl[k]["added"])
-            queue(uid, badge_text(g, bl[g], cd))
-            save(state)
-            print(f"🔁 OK - I forgot I told you about [b]{bl[g]['name']}[/b]: at the next check (within 15 minutes) it comes "
-                  "to you privately, just like a new badge. Reconnect and it comes right away.")
-    elif word in LATEST:                           # the newest badge, as an announcement of it looks
-        bl, cd = badges(), codes()
-        g = max(bl, key=lambda k: bl[k]["added"])
-        when = datetime.fromtimestamp(bl[g]["added"], timezone.utc).strftime("%d %b %Y")
-        print(badge_text(g, bl[g], cd, head=f"🎖 Newest TeamSpeak badge ({when})"))
-    elif word in UNSUBSCRIBE:
+        return (f"✅ {name}, you're subscribed to new TeamSpeak badges: I'll send you each one privately, with its code "
+                "once it's known (if you're offline, you'll get it when you connect). Stop: [b]!badges unsubscribe[/b]")
+    if word in UNSUBSCRIBE:
         was = uid in WHO
         subs["in"].pop(uid, None)
         if uid not in subs["out"]:
             subs["out"].append(uid)
         save_subs(subs)
         if state is not None and uid in (state.get("outbox") or {}):
-            state["outbox"].pop(uid)               # what was still waiting for them goes too
+            state["outbox"].pop(uid)                   # what was still waiting for them goes too
             save(state)
-        print("🔕 Done - no more badge messages for you. To get them again: [b]!badges subscribe[/b]" if was
-              else "I'm not sending you badges anyway. To get them: [b]!badges subscribe[/b]")
-    else:
-        on = uid in WHO
-        print(("" if word in HELP else f"I don't know '{word}'.\n")
-              + "🎖 [b]!badges[/b] - new TeamSpeak badges, privately, with their codes\n"
-              + "• [b]!badges subscribe[/b] - send me each new badge\n"
-              + "• [b]!badges unsubscribe[/b] - stop\n"
-              + "• [b]!badges latest[/b] - the newest badge, now\n"
-              + "• [b]!badges forget[/b] - send me the newest one again the way a new one comes (a test)\n"
-              + ("You get them privately." if on else "You don't get them yet.")
-              + f" {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them.")
-    raise SystemExit(0)
-
-# Someone connected: nothing new to look for - only hand over what waits for them (and only if it's one of ours).
-if ts3bot.trigger == "join":
-    if state is not None and ts3bot.user_uid in WHO:
-        deliver()
+        return ("🔕 Done - no more badge messages for you. To get them again: [b]!badges subscribe[/b]" if was
+                else "I'm not sending you badges anyway. To get them: [b]!badges subscribe[/b]")
+    if word in LATEST:                                 # the newest badge, as an announcement of it looks
+        bl, cd = badges(), codes()
+        g = newest(bl)
+        when = datetime.fromtimestamp(bl[g]["added"], timezone.utc).strftime("%d %b %Y")
+        return badge_text(g, bl[g], cd, head=f"🎖 Newest TeamSpeak badge ({when})")
+    if word in FORGET:                                 # a real announcement, for whoever asked only
+        if uid not in WHO:
+            return "You don't get new badges yet - subscribe first: [b]!badges subscribe[/b]"
+        if state is None:
+            return "I haven't looked at the badges yet - try again in a moment."
+        bl, cd = badges(), codes()
+        g = newest(bl)
+        queue(uid, badge_text(g, bl[g], cd))
         save(state)
-    raise SystemExit(0)
+        deliver()                                      # the way every announcement goes: by UID, if you're online
+        save(state)
+        return f"🔁 I forgot I told you about [b]{bl[g]['name']}[/b] - and told you again, just like a new badge."
+    on = uid in WHO
+    return (("" if word in HELP else f"I don't know '{word}'.\n")
+            + "🎖 [b]!badges[/b] - new TeamSpeak badges, privately, with their codes\n"
+            + "• [b]!badges subscribe[/b] - send me each new badge\n"
+            + "• [b]!badges unsubscribe[/b] - stop\n"
+            + "• [b]!badges latest[/b] - the newest badge, now\n"
+            + "• [b]!badges forget[/b] - send me the newest one again the way a new one comes (a test)\n"
+            + ("You get them privately." if on else "You don't get them yet.")
+            + f" {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them.")
 
-bl = badges()
-cd = codes()
 
-if state is None:   # first run: remember everything, post nothing, say what it watches
-    save({"badges": list(bl), "codes": {g: c for g, (c, _) in cd.items()}})
-    newest = max(bl.values(), key=lambda b: b["added"])
-    when = datetime.fromtimestamp(newest["added"], timezone.utc).strftime("%d %b %Y")
-    print(f"Watching {len(bl)} TeamSpeak badges (and {len(cd)} codes from the forum). Newest: {newest['name']} ({when}). "
-          + (f"I'll send each new one privately ({len(WHO)}× - whoever's offline gets it when they connect)."
-             if WHO else "I'll post each new one in the channel until someone subscribes.")
-          + " Get them privately: [b]!badges subscribe[/b], stop: [b]!badges unsubscribe[/b].")
-    raise SystemExit(0)
+def check():
+    """Look at both sources: announce what's new (and codes that turned up later), hand over what waits."""
+    global state
+    bl, cd = badges(), codes()
+    if state is None:   # the first check: remember everything, post nothing, say what it watches
+        state = {"badges": list(bl), "codes": {g: c for g, (c, _) in cd.items()}}
+        save(state)
+        n = bl[newest(bl)]
+        when = datetime.fromtimestamp(n["added"], timezone.utc).strftime("%d %b %Y")
+        return (f"Watching {len(bl)} TeamSpeak badges (and {len(cd)} codes from the forum). Newest: {n['name']} ({when}). "
+                + (f"I'll send each new one privately ({len(WHO)}× - whoever's offline gets it when they connect)."
+                   if WHO else "I'll post each new one in the channel until someone subscribes.")
+                + " Get them privately: [b]!badges subscribe[/b], stop: [b]!badges unsubscribe[/b].")
 
-seen = set(state["badges"])
-new = sorted((g for g in bl if g not in seen), key=lambda g: bl[g]["added"])
-if len(new) > BURST:
-    # More at once than TeamSpeak ever adds (its list changed shape, or what was remembered got lost): the newest one
-    # in full and the rest by name - one message, never a flood.
-    rest = ", ".join(bl[g]["name"] for g in reversed(new[:-1]))
-    more = f"\n…and {len(new) - 1} more new ones: {rest}"
-    tell(badge_text(new[-1], bl[new[-1]], cd) + (more if len(more) <= 400 else more[:400].rsplit(",", 1)[0] + ", …"))
+    seen = set(state["badges"])
+    new = sorted((g for g in bl if g not in seen), key=lambda g: bl[g]["added"])
+    if len(new) > BURST:
+        # More at once than TeamSpeak ever adds (its list changed shape, or what was remembered got lost): the newest
+        # one in full and the rest by name - one message, never a flood.
+        rest = ", ".join(bl[g]["name"] for g in reversed(new[:-1]))
+        more = f"\n…and {len(new) - 1} more new ones: {rest}"
+        tell(badge_text(new[-1], bl[new[-1]], cd) + (more if len(more) <= 400 else more[:400].rsplit(",", 1)[0] + ", …"))
+        for g in new:
+            state["badges"].append(g)
+            if g in cd:
+                state["codes"][g] = cd[g][0]
+        save(state)
+        new = []
     for g in new:
+        tell(badge_text(g, bl[g], cd))
         state["badges"].append(g)
         if g in cd:
             state["codes"][g] = cd[g][0]
-    save(state)
-    new = []
-for g in new:
-    b = bl[g]
-    tell(badge_text(g, b, cd))
-    state["badges"].append(g)
-    if g in cd:
-        state["codes"][g] = cd[g][0]
-    save(state)
-
-# A code that turned up after its badge was announced.
-for g, (code, until) in cd.items():
-    if g in seen and g not in state["codes"]:
-        if public(code) and not expired(until):
-            tell(f"🎖 TeamSpeak badge [b]{bl.get(g, {}).get('name', g)}[/b] – {code_line(code, until)}")
-        state["codes"][g] = code
         save(state)
 
-deliver()
-save(state)
+    # A code that turned up after its badge was announced.
+    for g, (code, until) in cd.items():
+        if g in seen and g not in state["codes"]:
+            if public(code) and not expired(until):
+                tell(f"🎖 TeamSpeak badge [b]{bl.get(g, {}).get('name', g)}[/b] – {code_line(code, until)}")
+            state["codes"][g] = code
+            save(state)
+
+    deliver()
+    save(state)
+    return ""
+
+
+state, WHO = None, []
+
+
+def handle(e):
+    """One event: read what's remembered (it may have changed - and a restart loses nothing), then do what was asked."""
+    global state, WHO
+    state = json.load(open(STATE)) if os.path.exists(STATE) else None
+    subs = load_subs()
+    WHO = recipients(subs)
+    if e.trigger == "command":
+        return command(e, subs)
+    if e.trigger == "join":                            # nothing new to look for - only hand over what waits for them
+        if state is not None and e.user_uid in WHO:
+            deliver()
+            save(state)
+        return ""
+    return check()                                     # start | cron | install | manual
+
+
+ts3bot.serve(handle)

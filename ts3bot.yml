@@ -1,8 +1,9 @@
 name: badges
 description: Watches TeamSpeak badges - each new one goes privately to whoever subscribed (!badges subscribe), or else to the channel, with its code once it's known.
-version: 2.4.0
+version: 3.0.0
 when:
-  cron: "*/15 * * * *"
+  always: true                    # it runs all the time: what's below comes to it as events, answered at once
+  cron: "*/15 * * * *"            # a check
   join: true                      # a subscriber who connects gets right away what waits for them
   command: badges                 # !badges subscribe | unsubscribe | latest | forget | help - for everyone: !service public badges on
 may:

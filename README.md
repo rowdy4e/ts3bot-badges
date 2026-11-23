@@ -4,6 +4,8 @@ A plugin for the TeamSpeak bot. It watches TeamSpeak badges and sends each new o
 (by UID, not by name) - whoever is offline gets it when they connect. It adds the redeem code as soon as it's known
 (the official badge list + the forum thread). When nobody has subscribed, it posts to the channel.
 
+It runs all the time, so `!badges` answers at once; it checks every 15 minutes (about 25 MB of memory while it waits).
+
 ## Install
 
 Send the bot a private message:
@@ -20,7 +22,7 @@ The bot shows what the plugin does and what it may do, and installs it only afte
 !badges subscribe     send me new badges privately
 !badges unsubscribe   stop sending them to me
 !badges latest        the newest badge, with its code
-!badges forget        send me the newest one again the way a new one comes (a test, only for you)
+!badges forget        send me the newest one again the way a new one comes (a test, only for you, right away)
 !badges               help, and whether I get them
 ```
 

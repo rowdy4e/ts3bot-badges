@@ -7,10 +7,10 @@ Plugin pro TeamSpeak bota. Hlídá TeamSpeak badges: každou novou ohlásí do k
 Soukromá zpráva botovi:
 
 ```
-!service install badges notify=me,Tisi
+!service install github.com/rowdy4e/ts3bot-badges notify=me,Tisi
 ```
 
 Bot ukáže, co plugin dělá a co smí, a nainstaluje ho až po tvém „ano“.
-Nastavení jde změnit i později: `!service set badges notify me`.
+`notify=me,Tisi` = komu psát (me = ty; jméno jen admina, jinak UID). Změnit jde i později: `!service set badges notify me`.
 
 Jak plugin napsat: [ts3bot-plugin-template](https://github.com/rowdy4e/ts3bot-plugin-template).

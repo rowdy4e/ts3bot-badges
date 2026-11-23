@@ -1,8 +1,11 @@
 # Two sources: TeamSpeak's own badge list - the file the client itself downloads, so a new badge shows up there
 # first - and the community forum thread that posts every badge with its redeem code ("Badge Code: X (Available
-# until: Y)"), usually the same day. The first run only remembers what's there and says so. With notify set, each
-# of those people gets a private message - whoever is offline the moment it's found, when they next connect (the
-# bot starts this again for everyone who connects: 'when: join'), or at the latest on the next check.
+# until: Y)"), usually the same day. The first run only remembers what's there and says so.
+#
+# Who hears about it: whoever subscribed themselves (!badges odebirat) plus the admin's 'notify' setting, minus
+# whoever unsubscribed (!badges zrusit - that works for the admin's picks too: nobody gets messages they don't want).
+# Each gets a private message - whoever is offline the moment it's found, when they next connect (the bot starts this
+# again for everyone who connects: 'when: join'), or at the latest on the next check. Nobody on the list: the channel.
 
 import html, json, os, re
 import xml.etree.ElementTree as ET
@@ -13,11 +16,32 @@ import ts3bot
 LIST = "https://badges-content.teamspeak.com/list"
 THREAD = "https://community.teamspeak.com/t/updated-teamspeak-badge-list/25184.rss"
 STATE = "/data/state.json"
+SUBS = "/data/subscribers.json"   # its own file: state.json not being there yet is what makes the first run the first
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"}
 REDEEM = "uplatníš v TeamSpeaku (Nastavení → Účet → Badges) nebo na [url=https://www.myteamspeak.com]myteamspeak.com[/url]"
 NO_CODE = {"auto assign", "one-time code", "tba", "unknown", "none", "n/a", "-", ""}
 GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 NOTIFY = ts3bot.people("notify")          # UIDs - who they are; what they're called today doesn't matter
+SUBSCRIBE = {"odebirat", "odebírat", "odber", "odběr", "prihlasit", "přihlásit", "subscribe", "sub", "on", "ano", "start"}
+UNSUBSCRIBE = {"zrusit", "zrušit", "odhlasit", "odhlásit", "unsubscribe", "unsub", "off", "ne", "stop"}
+
+
+def load_subs():
+    """{"in": {uid: name}, "out": [uid]} - who subscribed themselves, and who said no (also to the admin's notify)."""
+    try:
+        d = json.load(open(SUBS))
+        return {"in": dict(d.get("in") or {}), "out": list(d.get("out") or [])}
+    except (OSError, ValueError):
+        return {"in": {}, "out": []}
+
+
+def save_subs(subs):
+    with open(SUBS, "w") as f:
+        json.dump(subs, f)
+
+
+def recipients(subs):
+    return [u for u in dict.fromkeys(NOTIFY + list(subs["in"])) if u not in subs["out"]]
 
 
 def fetch(url):
@@ -96,19 +120,19 @@ def public(code):
 
 
 def tell(text):
-    """Into the channel - or, with notify set, into each of those people's outbox (deliver() sends it)."""
-    if not NOTIFY:
+    """Into each recipient's outbox (deliver() sends it) - or into the channel when there's nobody on the list."""
+    if not WHO:
         ts3bot.tool("say_channel", text=text)
         return
-    for uid in NOTIFY:
+    for uid in WHO:
         box = state.setdefault("outbox", {}).setdefault(uid, [])
         box.append(text)
         del box[:-30]                                  # someone away for months gets the latest 30
 
 
 def deliver():
-    """Private messages to whoever of notify is online now - found by UID, not by name; the rest wait."""
-    box = {u: t for u, t in (state.get("outbox") or {}).items() if u in NOTIFY and t}
+    """Private messages to whoever of the recipients is online now - found by UID, not by name; the rest wait."""
+    box = {u: t for u, t in (state.get("outbox") or {}).items() if u in WHO and t}
     state["outbox"] = box
     if not box:
         return
@@ -148,10 +172,42 @@ def save(state):
 
 
 state = json.load(open(STATE)) if os.path.exists(STATE) else None
+subs = load_subs()
+WHO = recipients(subs)
+
+# !badges [odebirat | zrusit]: anyone it's published for subscribes or unsubscribes themselves - by their UID.
+if ts3bot.trigger == "command":
+    word = (ts3bot.args.split() or [""])[0].lower()
+    uid, name = ts3bot.user_uid, ts3bot.user_name or "?"
+    if not uid:
+        raise SystemExit("nevím, kdo to píše")
+    if word in SUBSCRIBE:
+        subs["in"][uid] = name
+        subs["out"] = [u for u in subs["out"] if u != uid]
+        save_subs(subs)
+        print(f"✅ {name}, odebíráš nové TeamSpeak badges: každou ti napíšu soukromě, i s kódem, jakmile bude známý "
+              "(když nebudeš online, dostaneš ji, až přijdeš). Zrušit: [b]!badges zrusit[/b]")
+    elif word in UNSUBSCRIBE:
+        was = uid in WHO
+        subs["in"].pop(uid, None)
+        if uid not in subs["out"]:
+            subs["out"].append(uid)
+        save_subs(subs)
+        if state is not None and uid in (state.get("outbox") or {}):
+            state["outbox"].pop(uid)               # what was still waiting for them goes too
+            save(state)
+        print("🔕 Hotovo, nové badges ti už psát nebudu. Znovu: [b]!badges odebirat[/b]" if was
+              else "Nové badges ti nepíšu ani teď. Odebírat: [b]!badges odebirat[/b]")
+    else:
+        on = uid in WHO
+        print(("🎖 Nové TeamSpeak badges ti píšu soukromě. Zrušit: [b]!badges zrusit[/b]" if on
+               else "🎖 Nové TeamSpeak badges ti zatím nepíšu. Odebírat: [b]!badges odebirat[/b]")
+              + f" · Odebírá {len(WHO)} {'člověk' if len(WHO) == 1 else 'lidi' if 2 <= len(WHO) <= 4 else 'lidí'}.")
+    raise SystemExit(0)
 
 # Someone connected: nothing new to look for - only hand over what waits for them (and only if it's one of ours).
 if ts3bot.trigger == "join":
-    if state is not None and ts3bot.user_uid in NOTIFY:
+    if state is not None and ts3bot.user_uid in WHO:
         deliver()
         save(state)
     raise SystemExit(0)
@@ -164,8 +220,9 @@ if state is None:   # first run: remember everything, post nothing, say what it 
     newest = max(bl.values(), key=lambda b: b["added"])
     when = datetime.fromtimestamp(newest["added"], timezone.utc).strftime("%d.%m.%Y")
     print(f"Hlídám {len(bl)} TeamSpeak badges (a kódy z fóra: {len(cd)}). Nejnovější: {newest['name']} ({when}). "
-          + (f"Každou novou napíšu soukromě ({len(NOTIFY)}× - kdo nebude online, dostane ji, až přijde)."
-             if NOTIFY else "Každou novou napíšu do kanálu."))
+          + (f"Každou novou napíšu soukromě ({len(WHO)}× - kdo nebude online, dostane ji, až přijde)."
+             if WHO else "Každou novou napíšu do kanálu, dokud ji nebude nikdo odebírat.")
+          + " Odebírat ji soukromě: [b]!badges odebirat[/b], zrušit: [b]!badges zrusit[/b].")
     raise SystemExit(0)
 
 seen = set(state["badges"])

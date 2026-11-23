@@ -19,6 +19,7 @@ The bot shows what the plugin does and what it may do, and installs it only afte
 ```
 !badges subscribe     send me new badges privately
 !badges unsubscribe   stop sending them to me
+!badges latest        the newest badge, with its code
 !badges               do I get them?
 ```
 

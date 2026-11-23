@@ -24,6 +24,7 @@ GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 NOTIFY = ts3bot.people("notify")          # UIDs - who they are; what they're called today doesn't matter
 SUBSCRIBE = {"odebirat", "odebírat", "odber", "odběr", "prihlasit", "přihlásit", "subscribe", "sub", "on", "ano", "start"}
 UNSUBSCRIBE = {"zrusit", "zrušit", "odhlasit", "odhlásit", "unsubscribe", "unsub", "off", "ne", "stop"}
+LATEST = {"latest", "last", "newest", "new", "posledni", "poslední", "nejnovejsi", "nejnovější"}
 
 
 def load_subs():
@@ -166,6 +167,15 @@ def code_line(code, until):
     return "No public code."
 
 
+def badge_text(g, b, cd, head="🎖 New TeamSpeak badge"):
+    """The message about one badge: its name and description, its code (or why there isn't one), a link to its image."""
+    text = f"{head}: [b]{b['name']}[/b]" + (f" – {b['description']}" if b["description"] else "")
+    text += "\n" + (code_line(*cd[g]) if g in cd else "No code known yet - I'll send it when it turns up.")
+    if b["image"]:
+        text += f" · [url={b['image']}_details.svg]image[/url]"
+    return text
+
+
 def save(state):
     with open(STATE, "w") as f:
         json.dump(state, f)
@@ -175,7 +185,7 @@ state = json.load(open(STATE)) if os.path.exists(STATE) else None
 subs = load_subs()
 WHO = recipients(subs)
 
-# !badges [subscribe | unsubscribe] (the Czech odebirat | zrusit work too): anyone it's published for subscribes or unsubscribes themselves - by their UID.
+# !badges [subscribe | unsubscribe | latest] (the Czech odebirat | zrusit | posledni work too): anyone it's published for subscribes or unsubscribes themselves - by their UID.
 if ts3bot.trigger == "command":
     word = (ts3bot.args.split() or [""])[0].lower()
     uid, name = ts3bot.user_uid, ts3bot.user_name or "?"
@@ -187,6 +197,11 @@ if ts3bot.trigger == "command":
         save_subs(subs)
         print(f"✅ {name}, you're subscribed to new TeamSpeak badges: I'll send you each one privately, with its code "
               "once it's known (if you're offline, you'll get it when you connect). Stop: [b]!badges unsubscribe[/b]")
+    elif word in LATEST:                           # the newest badge, as an announcement of it looks
+        bl, cd = badges(), codes()
+        g = max(bl, key=lambda k: bl[k]["added"])
+        when = datetime.fromtimestamp(bl[g]["added"], timezone.utc).strftime("%d %b %Y")
+        print(badge_text(g, bl[g], cd, head=f"🎖 Newest TeamSpeak badge ({when})"))
     elif word in UNSUBSCRIBE:
         was = uid in WHO
         subs["in"].pop(uid, None)
@@ -202,7 +217,7 @@ if ts3bot.trigger == "command":
         on = uid in WHO
         print(("🎖 You get new TeamSpeak badges privately. Stop: [b]!badges unsubscribe[/b]" if on
                else "🎖 You don't get new TeamSpeak badges yet. To get them: [b]!badges subscribe[/b]")
-              + f" · {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them.")
+              + f" · {len(WHO)} {'person gets' if len(WHO) == 1 else 'people get'} them. The newest one: [b]!badges latest[/b]")
     raise SystemExit(0)
 
 # Someone connected: nothing new to look for - only hand over what waits for them (and only if it's one of ours).
@@ -229,11 +244,7 @@ seen = set(state["badges"])
 new = sorted((g for g in bl if g not in seen), key=lambda g: bl[g]["added"])
 for g in new:
     b = bl[g]
-    text = f"🎖 New TeamSpeak badge: [b]{b['name']}[/b]" + (f" – {b['description']}" if b["description"] else "")
-    text += "\n" + (code_line(*cd[g]) if g in cd else "No code known yet - I'll send it when it turns up.")
-    if b["image"]:
-        text += f" · [url={b['image']}_details.svg]image[/url]"
-    tell(text)
+    tell(badge_text(g, b, cd))
     state["badges"].append(g)
     if g in cd:
         state["codes"][g] = cd[g][0]
